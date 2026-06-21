@@ -1,0 +1,34 @@
+{
+  "name": "ai-powered-editor",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "QT_QPA_PLATFORM=offscreen node node_modules/vite/bin/vite.js",
+    "build": "QT_QPA_PLATFORM=offscreen node node_modules/vite/bin/vite.js build && node node_modules/typescript/lib/tsc.js -p tsconfig.electron.json",
+    "preview": "QT_QPA_PLATFORM=offscreen node node_modules/vite/bin/vite.js preview",
+    "electron:dev": "QT_QPA_PLATFORM=offscreen node node_modules/concurrently/dist/bin/concurrently.js \"QT_QPA_PLATFORM=offscreen node node_modules/vite/bin/vite.js\" \"node node_modules/wait-on/lib/wait-on.js http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "lint": "node node_modules/typescript/lib/tsc.js --noEmit",
+    "typecheck": "node node_modules/typescript/lib/tsc.js --noEmit"
+  },
+  "dependencies": {
+    "diff": "^7.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/diff": "^6.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
+  }
+}
