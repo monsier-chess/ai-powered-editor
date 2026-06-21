@@ -1,41 +1,8 @@
 import { forwardRef, useRef, useEffect, useCallback, useState } from 'react'
 import type { AIOperationResult } from '../../core/types'
+import type { SpeechToTextProvider } from '../../core/stt/SpeechToTextProvider'
+import { useSpeechToText } from '../../hooks/useSpeechToText'
 import { InlineDiff } from './InlineDiff'
-
-const TRANSCRIBE_URL = import.meta.env.DEV
-  ? '/transcribe'
-  : 'http://localhost:8000/transcribe'
-
-function encodeWav(samples: Float32Array, sampleRate: number): Blob {
-  const len = samples.length
-  const buffer = new ArrayBuffer(44 + len * 2)
-  const view = new DataView(buffer)
-
-  const writeStr = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
-  }
-
-  writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + len * 2, true)
-  writeStr(8, 'WAVE')
-  writeStr(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeStr(36, 'data')
-  view.setUint32(40, len * 2, true)
-
-  for (let i = 0; i < len; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(44 + i * 2, s < 0 ? s * 32768 : s * 32767, true)
-  }
-
-  return new Blob([buffer], { type: 'audio/wav' })
-}
 
 interface EditorProps {
   content: string
@@ -50,6 +17,8 @@ interface EditorProps {
   onRejectAll: () => void
   onRewrite: (instruction: string) => void
   loading: boolean
+  sttProvider: SpeechToTextProvider
+  sttLanguage: string
 }
 
 function getCaretCoords(textarea: HTMLTextAreaElement, pos: number): { top: number; left: number } {
@@ -115,6 +84,8 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(
     onRejectAll,
     onRewrite,
     loading,
+    sttProvider,
+    sttLanguage,
   }, ref) {
     const localRef = useRef<HTMLTextAreaElement>(null)
     const editorRef = (ref || localRef) as React.RefObject<HTMLTextAreaElement>
@@ -123,84 +94,27 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(
 
     const [instruction, setInstruction] = useState('')
     const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null)
-    const [isRecording, setIsRecording] = useState(false)
-    const [isTranscribing, setIsTranscribing] = useState(false)
 
-    const audioCtxRef = useRef<AudioContext | null>(null)
-    const streamRef = useRef<MediaStream | null>(null)
-    const scriptNodeRef = useRef<ScriptProcessorNode | null>(null)
-    const pcmFramesRef = useRef<Float32Array[]>([])
-
-    const stopRecordingAndTranscribe = useCallback(async () => {
-      if (!audioCtxRef.current || !scriptNodeRef.current || !streamRef.current) return
-
-      scriptNodeRef.current.disconnect()
-      const sampleRate = audioCtxRef.current.sampleRate
-      await audioCtxRef.current.close()
-      streamRef.current.getTracks().forEach(t => t.stop())
-
-      const frames = pcmFramesRef.current
-      const totalLen = frames.reduce((s, f) => s + f.length, 0)
-      const allSamples = new Float32Array(totalLen)
-      let offset = 0
-      for (const frame of frames) {
-        allSamples.set(frame, offset)
-        offset += frame.length
-      }
-
-      audioCtxRef.current = null
-      scriptNodeRef.current = null
-      streamRef.current = null
-      pcmFramesRef.current = []
-      setIsRecording(false)
-      setIsTranscribing(true)
-
-      try {
-        const wavBlob = encodeWav(allSamples, sampleRate)
-        const formData = new FormData()
-        formData.append('file', wavBlob, 'recording.wav')
-        const res = await fetch(TRANSCRIBE_URL, { method: 'POST', body: formData })
-        const data = await res.json() as { text?: string }
-        if (data.text) {
-          setInstruction(prev => prev ? prev + ' ' + data.text : data.text!)
-        }
-      } catch (err) {
-        console.error('Transcription failed:', err)
-      } finally {
-        setIsTranscribing(false)
-      }
-    }, [])
+    const { status: sttStatus, error: sttError, start, stop, cancel } = useSpeechToText(sttProvider, sttLanguage)
 
     const handleMicClick = useCallback(async () => {
-      if (isTranscribing) return
+      if (sttStatus === 'transcribing') return
 
-      if (isRecording) {
-        await stopRecordingAndTranscribe()
+      if (sttStatus === 'recording') {
+        const text = await stop()
+        if (text) setInstruction(prev => prev ? prev + ' ' + text : text)
         return
       }
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const audioCtx = new AudioContext()
-        const sourceNode = audioCtx.createMediaStreamSource(stream)
-        const scriptNode = audioCtx.createScriptProcessor(4096, 1, 1)
+      await start()
+    }, [sttStatus, stop, start])
 
-        pcmFramesRef.current = []
-        scriptNode.onaudioprocess = (e) => {
-          const channel = e.inputBuffer.getChannelData(0)
-          pcmFramesRef.current.push(new Float32Array(channel))
-        }
-        sourceNode.connect(scriptNode)
-        scriptNode.connect(audioCtx.destination)
-
-        audioCtxRef.current = audioCtx
-        streamRef.current = stream
-        scriptNodeRef.current = scriptNode
-        setIsRecording(true)
-      } catch {
-        // microphone access denied — ignore
+    // Cancel recording when popup closes
+    useEffect(() => {
+      if (!popupPos && sttStatus === 'recording') {
+        cancel()
       }
-    }, [isRecording, isTranscribing, stopRecordingAndTranscribe])
+    }, [popupPos, sttStatus, cancel])
 
     const hasSelection = selectionStart !== selectionEnd
 
@@ -256,6 +170,12 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(
       ? selectedText.slice(0, 80).replace(/\n/g, ' ') + '…'
       : selectedText.replace(/\n/g, ' ')
 
+    const micTitle = sttError
+      ? sttError
+      : sttStatus === 'recording'
+        ? 'Stop recording'
+        : 'Record instruction'
+
     return (
       <div ref={containerRef} className="editor-container">
         {activeOperation ? (
@@ -305,11 +225,11 @@ export const Editor = forwardRef<HTMLTextAreaElement, EditorProps>(
               <button
                 onClick={handleMicClick}
                 onMouseDown={e => e.stopPropagation()}
-                disabled={loading || isTranscribing}
-                className={`selection-popup-mic${isRecording ? ' recording' : ''}${isTranscribing ? ' transcribing' : ''}`}
-                title={isRecording ? 'Stop recording' : 'Record instruction'}
+                disabled={loading || sttStatus === 'transcribing'}
+                className={`selection-popup-mic${sttStatus === 'recording' ? ' recording' : ''}${sttStatus === 'transcribing' ? ' transcribing' : ''}`}
+                title={micTitle}
               >
-                {isTranscribing ? '⏳' : isRecording ? '⏹' : '🎤'}
+                {sttStatus === 'transcribing' ? '⏳' : sttStatus === 'recording' ? '⏹' : '🎤'}
               </button>
               <button
                 onClick={handleRewrite}

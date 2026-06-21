@@ -100,3 +100,21 @@ export interface AIProviderConfig {
   apiKey?: string
   label: string
 }
+
+export type STTProviderType = 'web-speech' | 'local-whisper' | 'openai-compatible'
+
+export interface STTSettings {
+  provider: STTProviderType
+  language: string           // ISO 639-1, e.g. 'ru'
+  localWhisperUrl: string    // e.g. 'http://localhost:8000'
+  openAIBaseUrl: string      // e.g. 'http://localhost:8000/v1'
+  openAIApiKey: string
+}
+
+export const DEFAULT_STT_SETTINGS: STTSettings = {
+  provider: 'web-speech',
+  language: 'ru',
+  localWhisperUrl: 'http://localhost:8000',
+  openAIBaseUrl: 'http://localhost:8000/v1',
+  openAIApiKey: '',
+}

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { DocumentManager } from '../core/document/DocumentManager'
 import { DiffEngine } from '../core/diff/DiffEngine'
 import { PromptRegistry } from '../core/prompts/PromptRegistry'
@@ -15,8 +15,10 @@ import { Editor } from './Editor/Editor'
 import { Settings } from './Settings/Settings'
 import { History } from './History/History'
 import { Logs } from './Logs/Logs'
-import type { AIOperationResult, AIProviderConfig, ProcessingSettings, ProviderSettings } from '../core/types'
+import type { AIOperationResult, AIProviderConfig, ProcessingSettings, ProviderSettings, STTSettings } from '../core/types'
+import { DEFAULT_STT_SETTINGS } from '../core/types'
 import type { AIProvider } from '../core/providers/AIProvider'
+import { createSTTProvider } from '../core/stt'
 
 type SidebarTab = 'settings' | 'history' | 'logs'
 
@@ -66,6 +68,13 @@ export function App() {
   const [providerSettings, setProviderSettings] = useState<ProviderSettings>(DEFAULT_SETTINGS)
   const [processingSettings, setProcessingSettings] = useState<ProcessingSettings>(DEFAULT_PROCESSING)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+
+  const [sttSettings, setSTTSettings] = useState<STTSettings>(DEFAULT_STT_SETTINGS)
+  const sttProvider = useMemo(() => createSTTProvider(sttSettings), [sttSettings])
+
+  const handleSTTSettingsChange = useCallback((s: Partial<STTSettings>) => {
+    setSTTSettings(prev => ({ ...prev, ...s }))
+  }, [])
 
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -403,6 +412,8 @@ export function App() {
             onRejectAll={handleRejectAll}
             onRewrite={handleRewrite}
             loading={loading}
+            sttProvider={sttProvider}
+            sttLanguage={sttSettings.language}
           />
         </div>
 
@@ -440,6 +451,9 @@ export function App() {
               onSettingsChange={handleSettingsChange}
               onProcessingSettingsChange={handleProcessingSettingsChange}
               onRefreshModels={refreshModels}
+              sttSettings={sttSettings}
+              onSTTSettingsChange={handleSTTSettingsChange}
+              sttProvider={sttProvider}
             />
           )}
           {sidebarTab === 'history' && (

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { AIProviderConfig, ProcessingSettings, ProviderSettings } from '../../core/types'
+import type { AIProviderConfig, ProcessingSettings, ProviderSettings, STTSettings } from '../../core/types'
+import type { SpeechToTextProvider } from '../../core/stt/SpeechToTextProvider'
 
 interface SettingsProps {
   providerType: string
@@ -12,6 +13,9 @@ interface SettingsProps {
   onSettingsChange: (settings: Partial<ProviderSettings>) => void
   onProcessingSettingsChange: (settings: Partial<ProcessingSettings>) => void
   onRefreshModels: () => void
+  sttSettings: STTSettings
+  onSTTSettingsChange: (s: Partial<STTSettings>) => void
+  sttProvider: SpeechToTextProvider
 }
 
 export function Settings({
@@ -25,8 +29,31 @@ export function Settings({
   onSettingsChange,
   onProcessingSettingsChange,
   onRefreshModels,
+  sttSettings,
+  onSTTSettingsChange,
+  sttProvider,
 }: SettingsProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [sttOpen, setSttOpen] = useState(false)
+  const [testStatus, setTestStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle')
+  const [testError, setTestError] = useState<string | null>(null)
+
+  const handleTestConnection = async () => {
+    setTestStatus('checking')
+    setTestError(null)
+    try {
+      const result = await sttProvider.checkAvailability()
+      if (result.available) {
+        setTestStatus('ok')
+      } else {
+        setTestStatus('error')
+        setTestError(result.error ?? 'Not available')
+      }
+    } catch (err) {
+      setTestStatus('error')
+      setTestError(String(err))
+    }
+  }
 
   return (
     <div className="settings-panel">
@@ -173,6 +200,102 @@ export function Settings({
             />
             <span className="settings-hint">Timer resets on every received token</span>
           </div>
+        </div>
+      )}
+
+      <div className="settings-section-header" onClick={() => setSttOpen(o => !o)}>
+        <span className="settings-section-arrow">{sttOpen ? '▾' : '▸'}</span>
+        Speech to Text
+      </div>
+
+      {sttOpen && (
+        <div className="settings-advanced">
+          <div className="settings-group">
+            <label>STT Provider</label>
+            <select
+              value={sttSettings.provider}
+              onChange={e => {
+                onSTTSettingsChange({ provider: e.target.value as STTSettings['provider'] })
+                setTestStatus('idle')
+                setTestError(null)
+              }}
+            >
+              <option value="web-speech">Web Speech (built-in)</option>
+              <option value="local-whisper">Local Whisper</option>
+              <option value="openai-compatible">OpenAI Compatible</option>
+            </select>
+          </div>
+
+          {sttSettings.provider === 'web-speech' && (
+            <div className="settings-group">
+              <span className="settings-hint">
+                Uses browser's built-in speech recognition. Requires internet access.
+              </span>
+            </div>
+          )}
+
+          {sttSettings.provider === 'local-whisper' && (
+            <div className="settings-group">
+              <label>Server URL</label>
+              <input
+                type="text"
+                value={sttSettings.localWhisperUrl}
+                onChange={e => onSTTSettingsChange({ localWhisperUrl: e.target.value })}
+                placeholder="http://localhost:8000"
+              />
+              <span className="settings-hint">
+                Local Whisper server exposing a /transcribe endpoint.
+              </span>
+            </div>
+          )}
+
+          {sttSettings.provider === 'openai-compatible' && (
+            <>
+              <div className="settings-group">
+                <label>Base URL</label>
+                <input
+                  type="text"
+                  value={sttSettings.openAIBaseUrl}
+                  onChange={e => onSTTSettingsChange({ openAIBaseUrl: e.target.value })}
+                  placeholder="http://localhost:8000/v1"
+                />
+              </div>
+              <div className="settings-group">
+                <label>API Key</label>
+                <input
+                  type="password"
+                  value={sttSettings.openAIApiKey}
+                  onChange={e => onSTTSettingsChange({ openAIApiKey: e.target.value })}
+                  placeholder="sk-..."
+                />
+              </div>
+            </>
+          )}
+
+          <div className="settings-group">
+            <label>Language</label>
+            <input
+              type="text"
+              value={sttSettings.language}
+              onChange={e => onSTTSettingsChange({ language: e.target.value })}
+              placeholder="ru"
+            />
+            <span className="settings-hint">ISO 639-1 language code, e.g. ru, en, de</span>
+          </div>
+
+          {sttSettings.provider !== 'web-speech' && (
+            <div className="settings-group">
+              <button onClick={handleTestConnection} disabled={testStatus === 'checking'}>
+                {testStatus === 'checking' ? 'Checking…' : 'Test connection'}
+              </button>
+              {testStatus === 'ok' && (
+                <span className="settings-hint" style={{ color: 'var(--green)' }}>Connection successful</span>
+              )}
+              {testStatus === 'error' && (
+                <span className="settings-hint" style={{ color: 'var(--red)' }}>{testError}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
