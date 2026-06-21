@@ -1,3 +1,15 @@
-node_modules/*
-dist/*
-dist-electron/*
+node_modules/
+dist/
+dist-electron/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
