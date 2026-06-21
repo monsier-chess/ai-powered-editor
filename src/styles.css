@@ -276,6 +276,18 @@ select {
   color: var(--green);
 }
 
+.intraline-removed {
+  background: rgba(243, 139, 168, 0.4);
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
+.intraline-added {
+  background: rgba(166, 227, 161, 0.4);
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
 .diff-actions {
   display: flex;
   gap: 4px;
@@ -429,14 +441,68 @@ select {
 
 .status-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
+  flex-direction: column;
   background: var(--bg-alt);
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-dim);
   flex-shrink: 0;
+}
+
+.status-progress-track {
+  height: 2px;
+  background: var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.status-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+@keyframes progress-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.status-progress-indeterminate {
+  height: 100%;
+  width: 25%;
+  background: var(--accent);
+  animation: progress-sweep 1.2s ease-in-out infinite;
+}
+
+.status-bar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+}
+
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-cancel-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-color: var(--red);
+  color: var(--red);
+  background: transparent;
+}
+
+.status-cancel-btn:hover:not(:disabled) {
+  background: rgba(243, 139, 168, 0.15);
+  border-color: var(--red);
+}
+
+.status-progress-label {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .status-bar .status-error {
@@ -451,19 +517,37 @@ select {
   color: var(--green);
 }
 
-.loading-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(30, 30, 46, 0.8);
+.settings-section-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 100;
+  gap: 6px;
+  padding: 8px 0 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
-.loading-spinner {
-  color: var(--accent);
-  font-size: 16px;
+.settings-section-header:hover {
+  color: var(--text);
+}
+
+.settings-section-arrow {
+  font-size: 10px;
+}
+
+.settings-advanced {
+  padding-top: 4px;
+}
+
+.settings-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .poetry-toggle.active {
@@ -548,6 +632,36 @@ select {
 
 .selection-popup-btn:hover:not(:disabled) {
   background: rgba(137, 180, 250, 0.15);
+}
+
+.selection-popup-mic {
+  padding: 4px 8px;
+  font-size: 15px;
+  flex-shrink: 0;
+  border-color: var(--border);
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.selection-popup-mic:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+
+.selection-popup-mic.recording {
+  border-color: var(--red);
+  color: var(--red);
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+.selection-popup-mic.transcribing {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(243, 139, 168, 0.5); }
+  50%       { box-shadow: 0 0 0 6px rgba(243, 139, 168, 0); }
 }
 
 /* Inline diff view */

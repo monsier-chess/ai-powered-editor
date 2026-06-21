@@ -1,4 +1,4 @@
-import type { AIOperationResult } from '../../core/types'
+import type { AIOperationResult, DiffSegment } from '../../core/types'
 
 interface DiffViewProps {
   operation: AIOperationResult | null
@@ -6,6 +6,18 @@ interface DiffViewProps {
   onRejectHunk: (hunkId: string) => void
   onAcceptAll: () => void
   onRejectAll: () => void
+}
+
+function renderSegments(segments: DiffSegment[]) {
+  return segments.map((seg, i) => {
+    if (seg.type === 'equal') {
+      return <span key={i}>{seg.text}</span>
+    } else if (seg.type === 'added') {
+      return <span key={i} className="intraline-added">{seg.text}</span>
+    } else {
+      return <span key={i} className="intraline-removed">{seg.text}</span>
+    }
+  })
 }
 
 export function DiffView({
@@ -57,20 +69,20 @@ export function DiffView({
             </span>
           </div>
           <div className="diff-lines">
-            {hunk.oldLines.length > 0 && (
+            {hunk.oldLinesWithSegments.length > 0 && (
               <div className="diff-section">
-                {hunk.oldLines.map((line, i) => (
+                {hunk.oldLinesWithSegments.map((lineData, i) => (
                   <div key={`old-${i}`} className="diff-line diff-line-removed">
-                    - {line}
+                    - {renderSegments(lineData.segments)}
                   </div>
                 ))}
               </div>
             )}
-            {hunk.newLines.length > 0 && (
+            {hunk.newLinesWithSegments.length > 0 && (
               <div className="diff-section">
-                {hunk.newLines.map((line, i) => (
+                {hunk.newLinesWithSegments.map((lineData, i) => (
                   <div key={`new-${i}`} className="diff-line diff-line-added">
-                    + {line}
+                    + {renderSegments(lineData.segments)}
                   </div>
                 ))}
               </div>
@@ -96,9 +108,9 @@ export function DiffView({
             <span>{hunk.accepted ? 'Accepted' : 'Rejected'}</span>
           </div>
           <div className="diff-lines">
-            {hunk.oldLines.map((line, i) => (
+            {hunk.oldLinesWithSegments.map((lineData, i) => (
               <div key={`old-${i}`} className="diff-line" style={{ color: 'var(--text-dim)' }}>
-                {line}
+                {renderSegments(lineData.segments)}
               </div>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import type { AIProviderConfig, AIResponse, ProviderCapabilities, ProviderSettings } from '../types'
+import type { AIProviderConfig, AIResponse, GenerateOptions, ProviderCapabilities, ProviderSettings } from '../types'
 
 export interface AIProvider {
   readonly type: AIProviderConfig['type']
@@ -10,7 +10,8 @@ export interface AIProvider {
     systemPrompt: string,
     prompt: string,
     context: string,
-    settings: ProviderSettings
+    settings: ProviderSettings,
+    options?: GenerateOptions
   ): Promise<AIResponse>
   listModels(): Promise<string[]>
   isAvailable(): Promise<boolean>
@@ -26,7 +27,8 @@ export abstract class BaseAIProvider implements AIProvider {
     systemPrompt: string,
     prompt: string,
     context: string,
-    settings: ProviderSettings
+    settings: ProviderSettings,
+    options?: GenerateOptions
   ): Promise<AIResponse>
   abstract listModels(): Promise<string[]>
   abstract isAvailable(): Promise<boolean>

@@ -1,4 +1,4 @@
-import type { AIOperationResult, OperationType, ProviderSettings } from '../types'
+import type { AIOperationResult, GenerateOptions, OperationType, ProviderSettings } from '../types'
 import type { AIProvider } from '../providers/AIProvider'
 import { PromptRegistry } from '../prompts/PromptRegistry'
 import { DiffEngine } from '../diff/DiffEngine'
@@ -31,14 +31,15 @@ export abstract class AIOperation {
     text: string,
     context: string,
     settings: ProviderSettings,
-    additionalVars: Record<string, string> = {}
+    additionalVars: Record<string, string> = {},
+    generateOptions?: GenerateOptions
   ): Promise<AIOperationResult> {
     const { systemPrompt, userPrompt } = this.promptRegistry.buildPrompt(this.promptKey, {
       text,
       ...additionalVars,
     })
 
-    const response = await provider.generate(systemPrompt, userPrompt, context, settings)
+    const response = await provider.generate(systemPrompt, userPrompt, context, settings, generateOptions)
 
     const modifiedText = response.text
 

@@ -1,4 +1,4 @@
-import type { AIOperationResult } from '../../core/types'
+import type { AIOperationResult, DiffSegment } from '../../core/types'
 
 interface InlineDiffProps {
   operation: AIOperationResult
@@ -13,6 +13,18 @@ interface Segment {
   type: 'context' | 'hunk'
   text?: string
   hunk?: AIOperationResult['hunks'][0]
+}
+
+function renderDiffSegments(segments: DiffSegment[]) {
+  return segments.map((seg, i) => {
+    if (seg.type === 'equal') {
+      return <span key={i}>{seg.text}</span>
+    } else if (seg.type === 'added') {
+      return <span key={i} className="intraline-added">{seg.text}</span>
+    } else {
+      return <span key={i} className="intraline-removed">{seg.text}</span>
+    }
+  })
 }
 
 function buildSegments(originalText: string, hunks: AIOperationResult['hunks']): Segment[] {
@@ -83,17 +95,17 @@ export function InlineDiff({
           const hunk = seg.hunk!
           return (
             <div key={hunk.id} className="inline-diff-hunk">
-              {hunk.oldLines.length > 0 && (
+              {hunk.oldLinesWithSegments.length > 0 && (
                 <pre className="inline-diff-removed">
-                  {hunk.oldLines.map((line, j) => (
-                    <div key={j} className="inline-diff-line removed">{'- ' + line}</div>
+                  {hunk.oldLinesWithSegments.map((lineData, j) => (
+                    <div key={j} className="inline-diff-line removed">- {renderDiffSegments(lineData.segments)}</div>
                   ))}
                 </pre>
               )}
-              {hunk.newLines.length > 0 && (
+              {hunk.newLinesWithSegments.length > 0 && (
                 <pre className="inline-diff-added">
-                  {hunk.newLines.map((line, j) => (
-                    <div key={j} className="inline-diff-line added">{'+ ' + line}</div>
+                  {hunk.newLinesWithSegments.map((lineData, j) => (
+                    <div key={j} className="inline-diff-line added">+ {renderDiffSegments(lineData.segments)}</div>
                   ))}
                 </pre>
               )}

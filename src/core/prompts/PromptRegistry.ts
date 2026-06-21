@@ -30,6 +30,7 @@ export class PromptRegistry {
 - Only make minimal changes needed to fix grammar and punctuation
 - Put the corrected text in the "result" field
 - Put a brief description of what you changed in the "comment" field
+- If a "Preceding context" block appears after "---", it is read-only reference material. Do NOT include it in the "result" field and do NOT grammar-correct it.
 ${JSON_FORMAT_INSTRUCTION}`,
 
       userPrompt: `Please fix grammar and punctuation errors in the following text. Do not change style, meaning, or Markdown formatting:\n\n{text}`,
@@ -50,6 +51,7 @@ ${JSON_FORMAT_INSTRUCTION}`,
 - Only fix actual errors, do not rewrite
 - Put the corrected poem in the "result" field
 - Put a brief description of what you changed in the "comment" field
+- If a "Preceding context" block appears after "---", it is read-only reference material. Do NOT include it in the "result" field.
 ${JSON_FORMAT_INSTRUCTION}`,
 
       userPrompt: `Please fix only spelling and typos in this poem. Preserve all line breaks, stanza structure, rhythm, and line length:\n\n{text}`,

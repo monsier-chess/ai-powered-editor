@@ -7,12 +7,24 @@ export interface ProviderSettings {
   thinking: boolean
 }
 
+export interface DiffSegment {
+  type: 'equal' | 'added' | 'removed'
+  text: string
+}
+
+export interface DiffLineWithSegments {
+  line: string
+  segments: DiffSegment[]
+}
+
 export interface DiffHunk {
   id: string
   oldStart: number
   oldLines: string[]
+  oldLinesWithSegments: DiffLineWithSegments[]
   newStart: number
   newLines: string[]
+  newLinesWithSegments: DiffLineWithSegments[]
   accepted: boolean | null
 }
 
@@ -68,6 +80,18 @@ export interface ProviderCapabilities {
   supportsThinking: boolean
   supportsStreaming: boolean
   maxContextLength: number
+}
+
+export interface ProcessingSettings {
+  chunkSize: number        // chars per chunk; 0 = no chunking
+  chunkOverlap: number     // chars of preceding context sent with each chunk
+  inactivityTimeout: number // seconds of silence before aborting
+}
+
+export interface GenerateOptions {
+  signal?: AbortSignal
+  onToken?: () => void          // called on every token received (for inactivity reset + UX)
+  inactivityTimeoutMs?: number  // overrides provider default when set
 }
 
 export interface AIProviderConfig {

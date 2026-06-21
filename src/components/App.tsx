@@ -5,6 +5,7 @@ import { PromptRegistry } from '../core/prompts/PromptRegistry'
 import { HistoryStore } from '../core/history/HistoryStore'
 import { LogStore } from '../core/logging/LogStore'
 import { ProviderRegistry } from '../core/providers/ProviderRegistry'
+import { TextChunker } from '../core/text/TextChunker'
 
 import { GrammarFixOperation } from '../core/operations/GrammarFixOperation'
 import { RewriteOperation } from '../core/operations/RewriteOperation'
@@ -14,7 +15,7 @@ import { Editor } from './Editor/Editor'
 import { Settings } from './Settings/Settings'
 import { History } from './History/History'
 import { Logs } from './Logs/Logs'
-import type { AIOperationResult, AIProviderConfig, ProviderSettings } from '../core/types'
+import type { AIOperationResult, AIProviderConfig, ProcessingSettings, ProviderSettings } from '../core/types'
 import type { AIProvider } from '../core/providers/AIProvider'
 
 type SidebarTab = 'settings' | 'history' | 'logs'
@@ -26,6 +27,12 @@ const DEFAULT_SETTINGS: ProviderSettings = {
   thinking: false,
 }
 
+const DEFAULT_PROCESSING: ProcessingSettings = {
+  chunkSize: 3000,
+  chunkOverlap: 300,
+  inactivityTimeout: 60,
+}
+
 export function App() {
   const [documentManager] = useState(() => new DocumentManager(
     '# AI Text Editor\n\nStart typing or paste your text here.\n\n## Features\n\n- Grammar Fix\n- Rewrite Selection\n- Poetry Mode\n'
@@ -35,12 +42,15 @@ export function App() {
   const [historyStore] = useState(() => new HistoryStore())
   const [logStore] = useState(() => new LogStore())
   const [providerRegistry] = useState(() => new ProviderRegistry())
+  const [textChunker] = useState(() => new TextChunker())
 
   const [content, setContent] = useState(documentManager.getContent())
   const [activeOperation, setActiveOperation] = useState<AIOperationResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [statusText, setStatusText] = useState('Ready')
   const [statusType, setStatusType] = useState<'info' | 'success' | 'error' | 'warning'>('info')
+  // null = single-chunk / not processing; {current, total} = chunked progress
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
 
   const [poetryMode, setPoetryMode] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('settings')
@@ -54,7 +64,10 @@ export function App() {
     label: 'Ollama',
   })
   const [providerSettings, setProviderSettings] = useState<ProviderSettings>(DEFAULT_SETTINGS)
+  const [processingSettings, setProcessingSettings] = useState<ProcessingSettings>(DEFAULT_PROCESSING)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const getProvider = useCallback((): AIProvider => {
     let provider = providerRegistry.get(providerType)
@@ -109,6 +122,10 @@ export function App() {
   const poetryFixOp = useRef(new PoetryGrammarFixOperation(promptRegistry, diffEngine, logStore))
   const rewriteOp = useRef(new RewriteOperation(promptRegistry, diffEngine, logStore))
 
+  const handleCancel = useCallback(() => {
+    abortControllerRef.current?.abort()
+  }, [])
+
   const handleGrammarFix = useCallback(async () => {
     if (documentManager.hasPendingChanges()) {
       setStatus('Accept or reject pending changes first.', 'warning')
@@ -116,37 +133,124 @@ export function App() {
     }
 
     const hasSelection = selectionStart !== selectionEnd
-    const text = hasSelection
+    const fullText = hasSelection
       ? content.slice(selectionStart, selectionEnd)
       : content
 
-    if (!text.trim()) {
+    if (!fullText.trim()) {
       setStatus('No text to process.', 'warning')
       return
     }
 
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
     setLoading(true)
-    setStatus('Running grammar fix...', 'info')
+    setProgress(null)
+
+    const op = poetryMode ? poetryFixOp.current : grammarFixOp.current
+    const provider = getProvider()
+    const inactivityTimeoutMs = processingSettings.inactivityTimeout * 1000
+
+    const onToken = () => {
+      // called for every streamed token — keeps inactivity timer reset
+    }
 
     try {
-      const op = poetryMode ? poetryFixOp.current : grammarFixOp.current
-      const context = op.prepareContext(content, hasSelection ? { start: selectionStart, end: selectionEnd } : undefined)
-      const provider = getProvider()
+      const useChunking = processingSettings.chunkSize > 0 && fullText.length > processingSettings.chunkSize
 
-      const result = await op.execute(provider, text, context, providerSettings)
-      result.contentStart = hasSelection ? selectionStart : 0
+      if (!useChunking) {
+        setStatus('Running grammar fix...', 'info')
 
-      documentManager.applyOperationResult(result)
-      historyStore.add(result)
+        const context = op.prepareContext(content, hasSelection ? { start: selectionStart, end: selectionEnd } : undefined)
 
-      setActiveOperation(result)
-      setStatus(`Grammar fix complete: ${result.comment || 'No comment'}`, 'success')
+        const result = await op.execute(provider, fullText, context, providerSettings, {}, {
+          signal: ac.signal,
+          onToken,
+          inactivityTimeoutMs,
+        })
+        result.contentStart = hasSelection ? selectionStart : 0
+
+        documentManager.applyOperationResult(result)
+        historyStore.add(result)
+        setActiveOperation(result)
+        setStatus(`Grammar fix complete: ${result.comment || 'No comment'}`, 'success')
+      } else {
+        // --- chunked path ---
+        const chunks = textChunker.split(fullText, processingSettings.chunkSize)
+        setProgress({ current: 0, total: chunks.length })
+        setStatus(`Processing chunk 1/${chunks.length}...`, 'info')
+
+        const modifiedChunks: string[] = []
+        let comments: string[] = []
+        let precedingOutput = ''
+
+        for (let i = 0; i < chunks.length; i++) {
+          if (ac.signal.aborted) throw ac.signal.reason
+
+          setProgress({ current: i + 1, total: chunks.length })
+          setStatus(`Processing chunk ${i + 1}/${chunks.length}...`, 'info')
+
+          const chunk = chunks[i]
+
+          // Preceding context = last N chars of previous chunk's FIXED output
+          const chunkContext = precedingOutput.length > 0
+            ? `[Preceding context — for reference only, do NOT include in output]\n${precedingOutput.slice(-processingSettings.chunkOverlap)}`
+            : ''
+
+          const result = await op.execute(
+            provider,
+            chunk.text,
+            chunkContext,
+            providerSettings,
+            {},
+            { signal: ac.signal, onToken, inactivityTimeoutMs }
+          )
+
+          modifiedChunks.push(result.modifiedText)
+          precedingOutput = result.modifiedText
+          if (result.comment) comments.push(result.comment)
+        }
+
+        // Merge chunks back and compute a single diff against the full original
+        const combinedModified = modifiedChunks.join('')
+        const hunks = diffEngine.computeHunks(fullText, combinedModified)
+        const mergedComment = comments.join(' | ') || `Processed ${chunks.length} chunks`
+
+        const merged: AIOperationResult = {
+          id: crypto.randomUUID(),
+          type: poetryMode ? 'poetry-grammar-fix' : 'grammar-fix',
+          originalText: fullText,
+          modifiedText: combinedModified,
+          hunks,
+          comment: mergedComment,
+          timestamp: Date.now(),
+          accepted: null,
+          contentStart: hasSelection ? selectionStart : 0,
+        }
+
+        documentManager.applyOperationResult(merged)
+        historyStore.add(merged)
+        setActiveOperation(merged)
+        setStatus(`Grammar fix complete (${chunks.length} chunks): ${mergedComment}`, 'success')
+      }
     } catch (err) {
-      setStatus(`Grammar fix failed: ${err}`, 'error')
+      if (ac.signal.aborted) {
+        setStatus('Grammar fix cancelled.', 'info')
+      } else {
+        setStatus(`Grammar fix failed: ${err}`, 'error')
+      }
     } finally {
+      abortControllerRef.current = null
       setLoading(false)
+      setProgress(null)
     }
-  }, [content, selectionStart, selectionEnd, poetryMode, documentManager, getProvider, providerSettings, historyStore, setStatus])
+  }, [
+    content, selectionStart, selectionEnd, poetryMode,
+    documentManager, diffEngine, getProvider,
+    providerSettings, processingSettings,
+    historyStore, textChunker, setStatus,
+  ])
 
   const handleRewrite = useCallback(async (instruction: string) => {
     if (documentManager.hasPendingChanges()) {
@@ -165,7 +269,11 @@ export function App() {
       return
     }
 
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
     setLoading(true)
+    setProgress(null)
     setStatus('Running rewrite...', 'info')
 
     try {
@@ -173,22 +281,29 @@ export function App() {
       const context = op.prepareContext(content, { start: selectionStart, end: selectionEnd })
       const provider = getProvider()
 
-      const result = await op.execute(provider, text, context, providerSettings, {
-        instruction,
+      const result = await op.execute(provider, text, context, providerSettings, { instruction }, {
+        signal: ac.signal,
+        onToken: () => {},
+        inactivityTimeoutMs: processingSettings.inactivityTimeout * 1000,
       })
       result.contentStart = selectionStart
 
       documentManager.applyOperationResult(result)
       historyStore.add(result)
-
       setActiveOperation(result)
       setStatus(`Rewrite complete: ${result.comment || 'No comment'}`, 'success')
     } catch (err) {
-      setStatus(`Rewrite failed: ${err}`, 'error')
+      if (ac.signal.aborted) {
+        setStatus('Rewrite cancelled.', 'info')
+      } else {
+        setStatus(`Rewrite failed: ${err}`, 'error')
+      }
     } finally {
+      abortControllerRef.current = null
       setLoading(false)
+      setProgress(null)
     }
-  }, [content, selectionStart, selectionEnd, documentManager, getProvider, providerSettings, historyStore, setStatus])
+  }, [content, selectionStart, selectionEnd, documentManager, getProvider, providerSettings, processingSettings, historyStore, setStatus])
 
   const handleAcceptHunk = useCallback((hunkId: string) => {
     if (!activeOperation) return
@@ -196,7 +311,6 @@ export function App() {
     setContent(documentManager.getContent())
 
     const updated = documentManager.getActiveOperations().find(o => o.id === activeOperation.id)
-    // Spread to create a new reference so React re-renders InlineDiff with updated hunks
     setActiveOperation(updated ? { ...updated, hunks: [...updated.hunks] } : null)
   }, [activeOperation, documentManager])
 
@@ -246,6 +360,12 @@ export function App() {
   const handleSettingsChange = useCallback((settings: Partial<ProviderSettings>) => {
     setProviderSettings(prev => ({ ...prev, ...settings }))
   }, [])
+
+  const handleProcessingSettingsChange = useCallback((settings: Partial<ProcessingSettings>) => {
+    setProcessingSettings(prev => ({ ...prev, ...settings }))
+  }, [])
+
+  const progressPercent = progress ? Math.round((progress.current / progress.total) * 100) : 0
 
   return (
     <div className="app-layout">
@@ -313,10 +433,12 @@ export function App() {
               providerType={providerType}
               providerConfig={providerConfig}
               providerSettings={providerSettings}
+              processingSettings={processingSettings}
               availableModels={availableModels}
               onProviderTypeChange={handleProviderTypeChange}
               onConfigChange={handleConfigChange}
               onSettingsChange={handleSettingsChange}
+              onProcessingSettingsChange={handleProcessingSettingsChange}
               onRefreshModels={refreshModels}
             />
           )}
@@ -330,15 +452,33 @@ export function App() {
       </div>
 
       <div className="status-bar">
-        <span className={`status-${statusType}`}>{statusText}</span>
-        <span>{providerType} / {providerSettings.model || 'no model'}</span>
-      </div>
-
-      {loading && (
-        <div className="loading-overlay">
-          <div className="loading-spinner">Processing...</div>
+        {loading && (
+          <div className="status-progress-track">
+            {progress ? (
+              <div
+                className="status-progress-fill"
+                style={{ width: `${progressPercent}%` }}
+              />
+            ) : (
+              <div className="status-progress-indeterminate" />
+            )}
+          </div>
+        )}
+        <div className="status-bar-content">
+          <span className={`status-${statusType}`}>{statusText}</span>
+          <div className="status-bar-right">
+            {loading && (
+              <button className="status-cancel-btn" onClick={handleCancel} title="Cancel operation">
+                ✕ Cancel
+              </button>
+            )}
+            {progress && (
+              <span className="status-progress-label">{progress.current}/{progress.total}</span>
+            )}
+            <span>{providerType} / {providerSettings.model || 'no model'}</span>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
